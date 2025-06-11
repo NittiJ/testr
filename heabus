@@ -1,0 +1,63 @@
+# Load required libraries
+library(tidyverse)
+library(openxlsx)
+library(readr)
+library(data.table)
+
+# --- Load BPD .RData file ---
+BPD_RData <- rstudioapi::selectFile("Select the existing BPD .RData file", 
+                                    path = "C:/RCode/", 
+                                    filter = "RData Files (*.RData)")
+load(BPD_RData)
+
+# --- Load BDC Control File ---
+bdc_ctl_file <- rstudioapi::selectFile("Select the BDC control file", 
+                                       path = "//mom9papnas001b/dept2/Network_Analysis_File_Sharing/All Templates and Data/Insourcing GEO/EDI Data/", 
+                                       filter = "Control Files (*.ctl)")
+bdc_ctl <- read_delim(bdc_ctl_file, delim = "|", col_types = cols(.default = col_character()), trim_ws = TRUE)
+
+# Use the file paths exactly as listed in the .ctl
+bdc_zip_files <- bdc_ctl$FILENAME
+
+# --- Read BDC Recognition Data ---
+BDC_Data <- data.frame()
+for (file in bdc_zip_files) {
+  message("Reading BDC: ", file)
+  temp_data <- read_delim(gzfile(file), delim = "|", 
+                          col_types = cols(.default = col_character()), trim_ws = TRUE) %>%
+    mutate(across(where(is.character), str_to_upper))
+  BDC_Data <- bind_rows(BDC_Data, temp_data)
+}
+BDC_Data <- distinct(BDC_Data) %>%
+  rename(PROV_MSTR_LOC_ID = BCBSA_PROV_MSTR_LOC_ID)
+
+# --- Join with BPD Provider Data ---
+BDC_Joined <- BDC_Data %>%
+  inner_join(Final_Data_Full, by = c("BCBSA_NTWK_ID", 
+                                     "BCBSA_MSTR_PROV_ID", 
+                                     "PROV_MSTR_LOC_ID"))
+
+# --- Load Recognition Mapping ---
+recognition_mapping <- read.xlsx("recognition_messaging_021920.xlsx")
+BDC_Joined <- BDC_Joined %>%
+  left_join(recognition_mapping, by = c("Recogntn_Value_CD" = "Code2"))
+
+# --- Final Output Fields ---
+BDC_Output <- BDC_Joined %>%
+  select(BCBSA_NTWK_ID, BCBSA_MSTR_PROV_ID, PROV_MSTR_LOC_ID, NPI, 
+         PROVIDER_NAME = ORG_NAME, PROV_ADDR_LINE_1, PROV_ADRS_CITY, 
+         PROV_ADRS_ST, PROV_ADRS_ZIP_CD, Bdc_Program_DESCRIPTION, 
+         Bdc_Sub_Program_DESCRIPTION, Designation_TYPE, Recogntn_Value_CD, 
+         Title1, Title2, MessageType, Graphic, Cnsmr_Trnsprncy_FLG, Last_Updt_DT) %>%
+  distinct()
+
+# --- Save to Excel ---
+wb <- createWorkbook()
+addWorksheet(wb, "BDC Recognitions")
+writeData(wb, "BDC Recognitions", BDC_Output)
+saveWorkbook(wb, file = "c:/code/geo/Output/Networks/BDC-Recognitions.xlsx", overwrite = TRUE)
+
+# --- Save to RData ---
+save.image("c:/code/geo/BDC_Recognitions.RData")
+
+message("✅ BDC parsing complete.")
