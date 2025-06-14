@@ -1,0 +1,54 @@
+library(tidyverse)
+library(readr)
+library(openxlsx)
+library(rstudioapi)
+
+# --- SETUP ---
+bdc_path <- "C:/BDC/"
+setwd(bdc_path)
+
+# --- STEP 1: Load BPD Final_Data_Full from .RData ---
+BPD_RData <- rstudioapi::selectFile("Select the existing BPD .RData file", 
+                                    path = "C:/RCode/", 
+                                    filter = "RData Files (*.RData)")
+load(BPD_RData)  # should load Final_Data_Full
+
+# --- STEP 2: Read and Combine All BDC .txt.gz Files ---
+bdc_files <- list.files(bdc_path, pattern = "\\.txt\\.gz$", full.names = TRUE)
+
+BDC_Data <- map_dfr(bdc_files, function(file) {
+  message("Reading: ", basename(file))
+  read_delim(gzfile(file), 
+             delim = "|", 
+             col_types = cols(.default = col_character()), 
+             trim_ws = TRUE)
+})
+
+# --- STEP 3: Clean and Standardize BDC Data ---
+BDC_Data <- BDC_Data %>% 
+  rename(PROV_MSTR_LOC_ID = BCBSA_PROV_MSTR_LOC_ID) %>%
+  mutate(across(where(is.character), str_to_upper)) %>%
+  distinct()
+
+# --- STEP 4: Match BDC Providers to BPD Master Data (LEFT JOIN) ---
+BDC_Joined <- BDC_Data %>%
+  left_join(Final_Data_Full, by = c("BCBSA_MSTR_PROV_ID", "PROV_MSTR_LOC_ID"))
+
+# --- STEP 5: Load Recognition Mapping Excel ---
+recognition_file <- rstudioapi::selectFile("Select the recognition mapping Excel file", 
+                                           path = bdc_path, 
+                                           filter = "Excel Files (*.xlsx)")
+recognition_mapping <- read.xlsx(recognition_file)
+
+# --- STEP 6: Join with Recognition Mapping ---
+BDC_Final <- BDC_Joined %>%
+  left_join(recognition_mapping, by = c("Recogntn_Value_CD" = "Code2"))  # adjust if needed
+
+# --- STEP 7: Save Outputs ---
+# Excel output
+write.xlsx(BDC_Final, file = file.path(bdc_path, "BDC_Recognized_Providers.xlsx"), overwrite = TRUE)
+
+# RData output
+save(BDC_Final, file = file.path(bdc_path, "BDC_Recognized_Providers.RData"))
+
+message("\u2705 BDC processing and save complete.")
