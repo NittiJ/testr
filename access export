@@ -1,6 +1,7 @@
 library(tidyverse)
 library(openxlsx)
 library(fs)
+library(RODBC)
 
 # --- SETUP ---
 bdc_path <- "C:/BDC/"
@@ -48,4 +49,14 @@ addWorksheet(wb, "BDC")
 writeData(wb, "BDC", BDC_ForAccess)
 saveWorkbook(wb, file = paste0("BDC_PreParsed_", DateToRun, ".xlsx"), overwrite = TRUE)
 
-message("\u2705 BDC export preparation complete.")
+# --- STEP 7: Export to Access ---
+blank_accdb <- "C:/BDC/output/networks/_blank.accdb"
+bdc_accdb <- paste0("C:/BDC/output/networks/BDC_Recognized_", DateToRun, ".accdb")
+
+file_copy(blank_accdb, bdc_accdb, overwrite = TRUE)
+
+conn <- odbcDriverConnect(paste0("Driver={Microsoft Access Driver (*.mdb, *.accdb)};DBQ=", bdc_accdb))
+sqlSave(conn, BDC_ForAccess, tablename = "NTWK", rownames = FALSE, append = TRUE)
+odbcClose(conn)
+
+message("\u2705 BDC export preparation and Access DB write complete.")
