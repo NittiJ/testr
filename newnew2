@@ -34,6 +34,13 @@ BDC_Data <- BDC_Data %>%
 BDC_Joined <- BDC_Data %>%
   left_join(Final_Data_Full, by = c("BCBSA_MSTR_PROV_ID", "PROV_MSTR_LOC_ID"))
 
+# --- UPDATED STEP: Extract BDC-format records that matched BPD ---
+Matched_Providers_BDC <- BDC_Data %>%
+  semi_join(Final_Data_Full, by = c("BCBSA_MSTR_PROV_ID", "PROV_MSTR_LOC_ID"))
+
+# Save the filtered BDC-format records that matched BPD
+save(Matched_Providers_BDC, file = file.path(bdc_path, "Matched_BDC_Providers.RData"))
+
 # --- STEP 5: Load Recognition Mapping Excel ---
 recognition_file <- rstudioapi::selectFile("Select the recognition mapping Excel file", 
                                            path = bdc_path, 
