@@ -1,0 +1,51 @@
+library(tidyverse)
+library(openxlsx)
+library(fs)
+
+# --- SETUP ---
+bdc_path <- "C:/BDC/"
+setwd(bdc_path)
+
+# --- STEP 1: Load Final BDC Data ---
+load("BDC_Recognized_Providers.RData")  # should load BDC_Joined
+
+# --- STEP 2: Load Recognition Mapping ---
+recognition_file <- rstudioapi::selectFile("Select the recognition mapping Excel file", 
+                                           path = bdc_path, 
+                                           filter = "Excel Files (*.xlsx)")
+recognition_mapping <- read.xlsx(recognition_file)
+
+# --- STEP 3: Join with Recognition Mapping ---
+BDC_Final <- BDC_Joined %>%
+  left_join(recognition_mapping, by = c("RECOGNTN_ENTITY_CD" = "Code1", 
+                                        "Recogntn_Value_CD" = "Code2"))
+
+# --- STEP 4: Prepare Final DataFrame for Access Export ---
+BDC_ForAccess <- BDC_Final %>%
+  mutate(
+    PROVIDER_NAME = if_else(!is.na(PROV_LAST_NM), 
+                             str_trim(paste(PROV_FRST_NM, PROV_LAST_NM)), 
+                             PROV_ORG_NM),
+    ADDRESS = PROV_ADDRS1,
+    CITY = PROV_CITY,
+    STATE = Provider_STATE,
+    ZIP_5 = Provider_Zip_CODE,
+    TAXONOMY = NA_character_,  # Placeholder for now
+    DIR_DSPLY_CODE = if_else(BDC_RECOG_REC_IND == "R", "Y", "N")
+  ) %>%
+  select(NPI, PROVIDER_NAME, ADDRESS, CITY, STATE, ZIP_5, TAXONOMY, DIR_DSPLY_CODE, 
+         BCBSA_MSTR_PROV_ID, PROV_MSTR_LOC_ID, Recogntn_Value_CD, Designation_TYPE, 
+         Bdc_Program_DESCRIPTION, Bdc_Sub_Program_DESCRIPTION, Title1, Title2, MessageType, Graphic) %>%
+  distinct()
+
+# --- STEP 5: Save to RDS for Geo / Access Processing ---
+DateToRun <- format(Sys.Date(), "%Y%m%d")
+saveRDS(BDC_ForAccess, file = paste0("BDC_PreParsed_", DateToRun, ".rds"))
+
+# --- STEP 6: Export to Excel (Optional, for inspection) ---
+wb <- createWorkbook()
+addWorksheet(wb, "BDC")
+writeData(wb, "BDC", BDC_ForAccess)
+saveWorkbook(wb, file = paste0("BDC_PreParsed_", DateToRun, ".xlsx"), overwrite = TRUE)
+
+message("\u2705 BDC export preparation complete.")
