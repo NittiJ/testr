@@ -17,9 +17,14 @@ recognition_file <- rstudioapi::selectFile("Select the recognition mapping Excel
 recognition_mapping <- read.xlsx(recognition_file)
 
 # --- STEP 3: Join with Recognition Mapping ---
+# Filter recognition mapping to only relevant codes in BDC_Joined
+recognition_mapping_filtered <- recognition_mapping %>%
+  semi_join(BDC_Joined, by = c("Code1" = "RECOGNTN_ENTITY_CD", 
+                               "Code2" = "Recogntn_Value_CD"))
+
 BDC_Final <- BDC_Joined %>%
-  left_join(recognition_mapping, by = c("RECOGNTN_ENTITY_CD" = "Code1", 
-                                        "Recogntn_Value_CD" = "Code2"))
+  left_join(recognition_mapping_filtered, by = c("RECOGNTN_ENTITY_CD" = "Code1", 
+                                                 "Recogntn_Value_CD" = "Code2"))
 
 # --- STEP 4: Prepare Final DataFrame for Access Export ---
 BDC_ForAccess <- BDC_Final %>%
