@@ -1,0 +1,66 @@
+library(tidyverse)
+library(readr)
+library(openxlsx)
+library(duckdb)
+
+# --- SETUP ---
+bdc_path <- "C:/BDC/"
+setwd(bdc_path)
+
+# --- STEP 1: Connect to DuckDB ---
+db <- dbConnect(duckdb::duckdb(), dbdir = "bdc_pipeline.duckdb", read_only = FALSE)
+
+# --- STEP 2: Load and write BDC_Joined from saved RData ---
+load("BDC_Recognized_Providers.RData")  # loads BDC_Joined
+
+# Write BDC data into DuckDB
+copy_to(db, BDC_Joined, name = "bdc", overwrite = TRUE, temporary = FALSE)
+
+# --- STEP 3: Load and write Recognition Mapping ---
+recognition_file <- rstudioapi::selectFile("Select recognition_mapping Excel file", 
+                                           path = bdc_path, 
+                                           filter = "Excel Files (*.xlsx)")
+recognition_mapping <- read.xlsx(recognition_file)
+copy_to(db, recognition_mapping, name = "recognition", overwrite = TRUE, temporary = FALSE)
+
+# --- STEP 4: SQL Join in DuckDB ---
+BDC_Final <- dbGetQuery(db, "
+  SELECT b.*,
+         r.Title1, r.Title2, r.MessageType, r.Graphic
+  FROM bdc b
+  LEFT JOIN recognition r
+    ON b.RECOGNTN_ENTITY_CD = r.Code1
+   AND b.Recogntn_Value_CD = r.Code2
+")
+
+# --- STEP 5: Prepare for Export ---
+BDC_ForAccess <- BDC_Final %>%
+  mutate(
+    PROVIDER_NAME = if_else(!is.na(PROV_LAST_NM), 
+                             str_trim(paste(PROV_FRST_NM, PROV_LAST_NM)), 
+                             PROV_ORG_NM),
+    ADDRESS = PROV_ADDRS1,
+    CITY = PROV_CITY,
+    STATE = Provider_STATE,
+    ZIP_5 = Provider_Zip_CODE,
+    TAXONOMY =s NA_character_,
+    DIR_DSPLY_CODE = if_else(BDC_RECOG_REC_IND == "R", "Y", "N")
+  ) %>%
+  select(NPI, PROVIDER_NAME, ADDRESS, CITY, STATE, ZIP_5, TAXONOMY, DIR_DSPLY_CODE, 
+         BCBSA_MSTR_PROV_ID, PROV_MSTR_LOC_ID, Recogntn_Value_CD, Designation_TYPE, 
+         Bdc_Program_DESCRIPTION, Bdc_Sub_Program_DESCRIPTION, Title1, Title2, MessageType, Graphic) %>%
+  distinct()
+
+# --- STEP 6: Save Output ---
+DateToRun <- format(Sys.Date(), "%Y%m%d")
+saveRDS(BDC_ForAccess, file = paste0("BDC_PreParsed_", DateToRun, ".rds"))
+
+# Optional: write to Excel for inspection
+wb <- createWorkbook()
+addWorksheet(wb, "BDC")
+writeData(wb, "BDC", BDC_ForAccess)
+saveWorkbook(wb, paste0("BDC_PreParsed_", DateToRun, ".xlsx"), overwrite = TRUE)
+
+# --- CLEANUP ---
+dbDisconnect(db, shutdown = TRUE)
+message("\u2705 BDC DuckDB pipeline complete.")
